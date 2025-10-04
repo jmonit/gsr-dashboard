@@ -20,8 +20,8 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Streamlit UI ---
-st.title("🖼️ Image → AI Report Generator (GPT-4o)")
-st.write("Upload an image (PNG/JPG). The AI will analyze it and generate a structured report.")
+st.title("A GSR Generator")
+st.write("Upload an image (PNG/JPG) to get an Ai analyzed and generate structured report.")
 
 uploaded_file = st.file_uploader("Choose an image", type=["png", "jpg", "jpeg"])
 
