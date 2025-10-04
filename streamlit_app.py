@@ -1,151 +1,99 @@
+import os
+import io
+import tempfile
+from dotenv import load_dotenv
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+from docx import Document
+from openai import OpenAI
+import markdown
+from bs4 import BeautifulSoup
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+# Load environment
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o")
+
+if not OPENAI_API_KEY:
+    st.error("⚠️ No API key found. Please set OPENAI_API_KEY in your .env file.")
+    st.stop()
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- Streamlit UI ---
+st.title("🖼️ Image → AI Report Generator (GPT-4o)")
+st.write("Upload an image (PNG/JPG). The AI will analyze it and generate a structured report.")
+
+uploaded_file = st.file_uploader("Choose an image", type=["png", "jpg", "jpeg"])
+
+model_choice = st.selectbox("Choose model", [DEFAULT_MODEL, "gpt-4o", "gpt-4o-mini"], index=0)
+
+user_prompt = st.text_area(
+    "Write what you want the AI to do with the image:",
+    value="""Extract the data from this image and generate a Galvanic Skin Response (GSR) Health Report with the following. Identify baseline levels and changes in conductance.Point out peaks or significant fluctuations. Correlate variations with possible stress, arousal, or relaxation responses. Comment on symmetry, stability, and response intensity.""",
+    height=200
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file. Nice
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2020
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+# --- Helpers ---
+def generate_report_from_image(image_bytes, model, prompt_text):
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You are a naturopathic practitioner specializing in biometric data interpretation. Your task is to generate clear, detailed, comprehensive and structured reports based on Galvanic Skin Response (GSR) readings."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_text},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + image_bytes}},
+                ],
+            },
+        ],
+        max_tokens=1200,
     )
+    return resp.choices[0].message.content
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+def create_docx(report_text, title="Generated Report"):
+    html = markdown.markdown(report_text)
+    soup = BeautifulSoup(html, "html.parser")
 
-    return gdp_df
+    doc = Document()
+    doc.add_heading(title, level=1)
+    
+    for element in soup.descendants:
+        if element.name == "h1":
+            doc.add_heading(element.get_text(), level=1)
+        elif element.name == "h2":
+            doc.add_heading(element.get_text(), level=2)
+        elif element.name == "h3":
+            doc.add_heading(element.get_text(), level=3)
+        elif element.name == "p":
+            doc.add_paragraph(element.get_text())
+        elif element.name == "ul":
+            for li in element.find_all("li"):
+                doc.add_paragraph(li.get_text(), style="List Bullet")
+        elif element.name == "ol":
+            for li in element.find_all("li"):
+                doc.add_paragraph(li.get_text(), style="List Number")
 
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp.name)
+    return tmp.name
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+# --- Main flow ---
+if uploaded_file:
+    if st.button("Generate Report"):
+        with st.spinner("Analyzing image with GPT-4o…"):
+            import base64
+            b64_image = base64.b64encode(uploaded_file.read()).decode("utf-8")
 
-st.header(f'GDP in {to_year}', divider='gray')
+            try:
+                report = generate_report_from_image(b64_image, model_choice, user_prompt)
 
-''
+                st.subheader("Generated Report")
+                st.text_area("Report (editable)", value=report, height=400)
 
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+                path = create_docx(report)
+                with open(path, "rb") as f:
+                    st.download_button("Download as Word (.docx)", f, file_name="Image_Report.docx")
+            except Exception as e:
+                st.error(f"Error generating report: {e}")
