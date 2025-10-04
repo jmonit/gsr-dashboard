@@ -1,2 +1,6 @@
 streamlit
 pandas
+openai
+pdfplumber
+python-docx
+python-dotenv
