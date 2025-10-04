@@ -14,7 +14,7 @@ st.set_page_config(
 
 @st.cache_data
 def get_gdp_data():
-    """Grab GDP data from a CSV file.
+    """Grab GDP data from a CSV file. Nice
 
     This uses caching to avoid having to read the file every time. If we were
     reading from an HTTP endpoint instead of a file, it's a good idea to set
@@ -26,7 +26,7 @@ def get_gdp_data():
     raw_gdp_df = pd.read_csv(DATA_FILENAME)
 
     MIN_YEAR = 1960
-    MAX_YEAR = 2022
+    MAX_YEAR = 2025
 
     # The data above has columns like:
     # - Country Name
